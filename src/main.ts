@@ -1,10 +1,10 @@
 import 'dotenv/config';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
-async function bootstrap() {
+export async function createApp(): Promise<INestApplication> {
   const app = await NestFactory.create(AppModule);
   app.enableCors({
     origin: true,
@@ -38,6 +38,14 @@ async function bootstrap() {
     jsonDocumentUrl: 'docs-json',
   });
 
+  return app;
+}
+
+async function bootstrap() {
+  const app = await createApp();
   await app.listen(process.env.PORT ?? 3000);
 }
-bootstrap();
+
+if (require.main === module) {
+  void bootstrap();
+}
