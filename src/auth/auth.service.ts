@@ -8,6 +8,7 @@ import { InjectConnection } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
 import { Connection } from 'mongoose';
 import { UsersService } from 'src/users/users.service';
+import { UserDocument } from 'src/users/schema/user.schema';
 import { WalletsService } from 'src/wallets/wallets.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -47,7 +48,6 @@ export class AuthService {
       );
 
       await session.commitTransaction();
-
       return {
         message: 'Registration successful. Please sign in.',
       };
@@ -75,11 +75,15 @@ export class AuthService {
     );
     if (!isEqualPass) throw new UnauthorizedException('Invalid credentials');
 
+    return this.createAuthResponse(existingUser);
+  }
+
+  private async createAuthResponse(user: UserDocument) {
     const payLoad = {
-      userId: existingUser._id.toString(),
-      email: existingUser.email,
+      userId: user._id.toString(),
+      email: user.email,
     };
-    
+
     const token = await this.jwtService.signAsync(payLoad, {
       expiresIn: (process.env.JWT_EXPIRES_IN ?? '1d') as any,
       secret: process.env.JWT_SECRET,
@@ -87,12 +91,18 @@ export class AuthService {
 
     return {
       user: {
-        id: existingUser._id.toString(),
-        username: existingUser.username,
-        email: existingUser.email,
-        walletId: existingUser.walletId?.toString(),
+        id: user._id.toString(),
+        username: user.username,
+        email: user.email,
+        walletId: user.walletId?.toString(),
+        isAdmin: this.isAdmin(user.email),
       },
       token,
     };
+  }
+
+  private isAdmin(email: string) {
+    const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+    return Boolean(adminEmail && email.toLowerCase() === adminEmail);
   }
 }

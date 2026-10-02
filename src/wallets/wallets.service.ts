@@ -14,6 +14,7 @@ import {
   TransactionType,
 } from 'src/transactions/transaction.enums';
 import { UsersService } from 'src/users/users.service';
+import { UserDocument } from 'src/users/schema/user.schema';
 import { TransferDto } from './dto/transfer.dto';
 import { Wallet, WalletDocument } from './schema/wallet.schema';
 
@@ -72,80 +73,90 @@ export class WalletsService {
 
     try {
       session.startTransaction();
-
-      const senderWalletExists = await this.walletModel
-        .findOne({ userId: sender._id })
-        .session(session);
-      if (!senderWalletExists)
-        throw new NotFoundException('Sender wallet not found');
-
-      const senderWallet = await this.walletModel.findOneAndUpdate(
-        { userId: sender._id, balance: { $gte: amount } },
-        { $inc: { balance: -amount } },
-        { new: true, session },
-      );
-      if (!senderWallet) throw new BadRequestException('Insufficient balance');
-
-      const receiverWallet = await this.walletModel.findOneAndUpdate(
-        { userId: receiver._id },
-        { $inc: { balance: amount } },
-        { new: true, session },
-      );
-      if (!receiverWallet)
-        throw new NotFoundException('Receiver wallet not found');
-
-      const senderTransactionId = `tx_${randomUUID()}`;
-      const receiverTransactionId = `tx_${randomUUID()}`;
-      const description = transferDto.description ?? '';
-
-      await this.transactionsService.createMany(
-        [
-          {
-            transactionId: senderTransactionId,
-            userId: sender._id,
-            walletId: senderWallet._id,
-            type: TransactionType.EXPENSE,
-            category: TransactionCategory.TRANSFER,
-            amount,
-            status: TransactionStatus.COMPLETED,
-            description,
-            relatedUserId: receiver._id,
-          },
-          {
-            transactionId: receiverTransactionId,
-            userId: receiver._id,
-            walletId: receiverWallet._id,
-            type: TransactionType.INCOME,
-            category: TransactionCategory.TRANSFER,
-            amount,
-            status: TransactionStatus.COMPLETED,
-            description,
-            relatedUserId: sender._id,
-          },
-        ],
+      const transfer = await this.transferFundsInSession(
+        sender,
+        receiver,
+        amount,
+        transferDto.description ?? '',
         session,
       );
 
       await session.commitTransaction();
-
-      return {
-        transactionId: senderTransactionId,
-        status: TransactionStatus.COMPLETED,
-        amount: centsToAmount(amount),
-        sender: {
-          email: sender.email,
-        },
-        receiver: {
-          email: receiver.email,
-        },
-        description,
-        createdAt: new Date().toISOString(),
-      };
+      return transfer;
     } catch (error) {
       await session.abortTransaction();
       throw error;
     } finally {
       await session.endSession();
     }
+  }
+
+  async transferFundsInSession(
+    sender: Pick<UserDocument, '_id' | 'email'>,
+    receiver: Pick<UserDocument, '_id' | 'email'>,
+    amount: number,
+    description: string,
+    session: ClientSession,
+    category: TransactionCategory = TransactionCategory.TRANSFER,
+  ) {
+    const senderWalletExists = await this.walletModel
+      .findOne({ userId: sender._id })
+      .session(session);
+    if (!senderWalletExists) throw new NotFoundException('Sender wallet not found');
+
+    const senderWallet = await this.walletModel.findOneAndUpdate(
+      { userId: sender._id, balance: { $gte: amount } },
+      { $inc: { balance: -amount } },
+      { new: true, session },
+    );
+    if (!senderWallet) throw new BadRequestException('Insufficient balance');
+
+    const receiverWallet = await this.walletModel.findOneAndUpdate(
+      { userId: receiver._id },
+      { $inc: { balance: amount } },
+      { new: true, session },
+    );
+    if (!receiverWallet) throw new NotFoundException('Receiver wallet not found');
+
+    const senderTransactionId = `tx_${randomUUID()}`;
+    const receiverTransactionId = `tx_${randomUUID()}`;
+
+    await this.transactionsService.createMany(
+      [
+        {
+          transactionId: senderTransactionId,
+          userId: sender._id,
+          walletId: senderWallet._id,
+          type: TransactionType.EXPENSE,
+          category,
+          amount,
+          status: TransactionStatus.COMPLETED,
+          description,
+          relatedUserId: receiver._id,
+        },
+        {
+          transactionId: receiverTransactionId,
+          userId: receiver._id,
+          walletId: receiverWallet._id,
+          type: TransactionType.INCOME,
+          category,
+          amount,
+          status: TransactionStatus.COMPLETED,
+          description,
+          relatedUserId: sender._id,
+        },
+      ],
+      session,
+    );
+
+    return {
+      transactionId: senderTransactionId,
+      status: TransactionStatus.COMPLETED,
+      amount: centsToAmount(amount),
+      sender: { email: sender.email },
+      receiver: { email: receiver.email },
+      description,
+      createdAt: new Date().toISOString(),
+    };
   }
 }

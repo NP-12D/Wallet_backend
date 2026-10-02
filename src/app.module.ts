@@ -5,6 +5,8 @@ import { UsersModule } from './users/users.module';
 import { WalletsModule } from './wallets/wallets.module';
 import { PaymentsModule } from './payments/payments.module';
 import { TransactionsModule } from './transactions/transactions.module';
+import { MoneyRequestsModule } from './money-requests/money-requests.module';
+import { SupportModule } from './support/support.module';
 
 @Module({
   imports: [
@@ -26,6 +28,8 @@ import { TransactionsModule } from './transactions/transactions.module';
     WalletsModule,
     PaymentsModule,
     TransactionsModule,
+    MoneyRequestsModule,
+    SupportModule,
   ],
 })
 export class AppModule {}
