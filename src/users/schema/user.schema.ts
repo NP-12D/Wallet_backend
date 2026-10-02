@@ -22,6 +22,9 @@ export class User {
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Wallet' })
   walletId!: Types.ObjectId;
 
+  @Prop({ type: Boolean, required: true, default: true })
+  emailVerified!: boolean;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

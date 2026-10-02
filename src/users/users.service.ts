@@ -11,6 +11,7 @@ type CreateUserInput = {
   username: string;
   email: string;
   password: string;
+  emailVerified?: boolean;
 };
 
 @Injectable()
@@ -52,6 +53,16 @@ export class UsersService {
     const user = await this.userModel
       .findByIdAndUpdate(userId, { walletId }, { new: true, session })
       .select('-password');
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+
+  async setEmailVerified(userId: string | Types.ObjectId) {
+    const user = await this.userModel.findByIdAndUpdate(
+      userId,
+      { emailVerified: true },
+      { new: true },
+    );
     if (!user) throw new NotFoundException('User not found');
     return user;
   }

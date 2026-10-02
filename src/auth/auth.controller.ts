@@ -3,6 +3,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { VerifyCodeDto } from 'src/email-codes/dto/verify-code.dto';
 
 @Controller()
 @ApiTags('auth')
@@ -16,8 +17,20 @@ export class AuthController {
   }
 
   @Post('/login')
-  @ApiOperation({ summary: 'Login and receive a JWT token' })
+  @ApiOperation({ summary: 'Validate credentials and send a sign-in code' })
   login(@Body() body: LoginDto) {
     return this.authService.login(body);
+  }
+
+  @Post('/register/verify')
+  @ApiOperation({ summary: 'Verify the email code sent during registration' })
+  verifyRegistration(@Body() body: VerifyCodeDto) {
+    return this.authService.verifyRegistration(body);
+  }
+
+  @Post('/login/verify')
+  @ApiOperation({ summary: 'Verify the email code sent during login' })
+  verifyLogin(@Body() body: VerifyCodeDto) {
+    return this.authService.verifyLogin(body);
   }
 }

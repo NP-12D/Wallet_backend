@@ -12,6 +12,9 @@ import { UserDocument } from 'src/users/schema/user.schema';
 import { WalletsService } from 'src/wallets/wallets.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { VerifyCodeDto } from 'src/email-codes/dto/verify-code.dto';
+import { EmailCodesService } from 'src/email-codes/email-codes.service';
+import { EmailCodePurpose } from 'src/email-codes/email-code.enums';
 
 @Injectable()
 export class AuthService {
@@ -19,6 +22,7 @@ export class AuthService {
     private usersService: UsersService,
     private walletsService: WalletsService,
     private jwtService: JwtService,
+    private emailCodesService: EmailCodesService,
     @InjectConnection() private connection: Connection,
   ) {}
 
@@ -27,17 +31,25 @@ export class AuthService {
       registerDto.email,
     );
     if (existingUser) {
+      if (!existingUser.emailVerified) {
+        return this.emailCodesService.issue(
+          existingUser._id,
+          existingUser.email,
+          EmailCodePurpose.REGISTRATION,
+        );
+      }
       throw new BadRequestException('User with this email already exists');
     }
 
     const session = await this.connection.startSession();
+    let createdUser: UserDocument | null = null;
 
     try {
       session.startTransaction();
 
       const hashedPass = await bcrypt.hash(registerDto.password, 10);
       const user = await this.usersService.create(
-        { ...registerDto, password: hashedPass },
+        { ...registerDto, password: hashedPass, emailVerified: false },
         session,
       );
       const wallet = await this.walletsService.createForUser(user._id, session);
@@ -48,18 +60,26 @@ export class AuthService {
       );
 
       await session.commitTransaction();
-      return {
-        message: 'Registration successful. Please sign in.',
-      };
+      createdUser = user;
     } catch (error) {
-      await session.abortTransaction();
-      if (error) {
+      if (session.inTransaction()) await session.abortTransaction();
+      if ((error as { code?: number })?.code === 11000) {
         throw new BadRequestException('User with this email already exists');
       }
       throw error;
     } finally {
       await session.endSession();
     }
+
+    if (!createdUser) {
+      throw new BadRequestException('Could not create the account');
+    }
+
+    return this.emailCodesService.issue(
+      createdUser._id,
+      createdUser.email,
+      EmailCodePurpose.REGISTRATION,
+    );
   }
 
   async login(loginDto: LoginDto) {
@@ -74,8 +94,34 @@ export class AuthService {
       existingUser.password,
     );
     if (!isEqualPass) throw new UnauthorizedException('Invalid credentials');
+    if (!existingUser.emailVerified) {
+      throw new BadRequestException('Verify your email address before signing in');
+    }
 
-    return this.createAuthResponse(existingUser);
+    return this.emailCodesService.issue(
+      existingUser._id,
+      existingUser.email,
+      EmailCodePurpose.LOGIN,
+    );
+  }
+
+  async verifyRegistration(dto: VerifyCodeDto) {
+    const user = await this.usersService.findOneByEmail(dto.email);
+    if (!user) throw new UnauthorizedException('Invalid verification request');
+    await this.emailCodesService.verify(user._id, EmailCodePurpose.REGISTRATION, dto.code);
+    await this.usersService.setEmailVerified(user._id);
+
+    return { message: 'Email verified. You can now sign in.' };
+  }
+
+  async verifyLogin(dto: VerifyCodeDto) {
+    const user = await this.usersService.findOneByEmail(dto.email, true);
+    if (!user || !user.emailVerified) {
+      throw new UnauthorizedException('Invalid verification request');
+    }
+    await this.emailCodesService.verify(user._id, EmailCodePurpose.LOGIN, dto.code);
+
+    return this.createAuthResponse(user);
   }
 
   private async createAuthResponse(user: UserDocument) {

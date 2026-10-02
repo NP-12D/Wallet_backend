@@ -15,6 +15,8 @@ import {
 } from 'src/transactions/transaction.enums';
 import { UsersService } from 'src/users/users.service';
 import { UserDocument } from 'src/users/schema/user.schema';
+import { EmailCodesService } from 'src/email-codes/email-codes.service';
+import { EmailCodePurpose } from 'src/email-codes/email-code.enums';
 import { TransferDto } from './dto/transfer.dto';
 import { Wallet, WalletDocument } from './schema/wallet.schema';
 
@@ -25,6 +27,7 @@ export class WalletsService {
     @InjectConnection() private connection: Connection,
     private usersService: UsersService,
     private transactionsService: TransactionsService,
+    private emailCodesService: EmailCodesService,
   ) {}
 
   async createForUser(
@@ -57,7 +60,7 @@ export class WalletsService {
     };
   }
 
-  async transfer(userId: string, transferDto: TransferDto) {
+  async requestTransferVerification(userId: string, transferDto: TransferDto) {
     const amount = parseAmountToCents(transferDto.amount);
     const sender = await this.usersService.findOne(userId);
     const receiver = await this.usersService.findOneByEmail(
@@ -69,6 +72,33 @@ export class WalletsService {
       throw new BadRequestException('Cannot transfer to yourself');
     }
 
+    return this.emailCodesService.issue(
+      sender._id,
+      sender.email,
+      EmailCodePurpose.TRANSFER,
+      {
+        receiverEmail: receiver.email,
+        amount,
+        description: transferDto.description ?? '',
+      },
+    );
+  }
+
+  async confirmTransfer(userId: string, code: string) {
+    const sender = await this.usersService.findOne(userId);
+    const verification = await this.emailCodesService.verify(
+      sender._id,
+      EmailCodePurpose.TRANSFER,
+      code,
+    );
+
+    if (!verification.receiverEmail || !verification.amount) {
+      throw new BadRequestException('Invalid transfer verification request');
+    }
+
+    const receiver = await this.usersService.findOneByEmail(verification.receiverEmail);
+    if (!receiver) throw new NotFoundException('Receiver not found');
+    const amount = verification.amount;
     const session = await this.connection.startSession();
 
     try {
@@ -77,7 +107,7 @@ export class WalletsService {
         sender,
         receiver,
         amount,
-        transferDto.description ?? '',
+        verification.description ?? '',
         session,
       );
 

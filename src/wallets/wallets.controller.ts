@@ -15,6 +15,7 @@ import { ExportQueryDto } from 'src/transactions/dto/export-query.dto';
 import { TransactionQueryDto } from 'src/transactions/dto/transaction-query.dto';
 import { TransactionsService } from 'src/transactions/transactions.service';
 import { TransferDto } from './dto/transfer.dto';
+import { ConfirmTransferDto } from 'src/email-codes/dto/confirm-transfer.dto';
 import { WalletsService } from './wallets.service';
 
 @Controller('wallet')
@@ -36,7 +37,13 @@ export class WalletsController {
   @Post('/transfer')
   @ApiOperation({ summary: 'Transfer money to another wallet user' })
   transfer(@User() userId: string, @Body() body: TransferDto) {
-    return this.walletsService.transfer(userId, body);
+    return this.walletsService.requestTransferVerification(userId, body);
+  }
+
+  @Post('/transfer/confirm')
+  @ApiOperation({ summary: 'Confirm a transfer with the emailed code' })
+  confirmTransfer(@User() userId: string, @Body() body: ConfirmTransferDto) {
+    return this.walletsService.confirmTransfer(userId, body.code);
   }
 
   @Get('/transactions/export')
